@@ -1,0 +1,23 @@
+# hive数据源配置
+hive_data_source:
+ host: 107.18.4.19
+ port: 28081
+ username: username
+ password: 123456
+ database: hive_db
+
+# mysql数据源配置
+mysql_data_source:
+ host: 107.18.4.19
+ port: 28081
+ username: username
+ password: 123456
+ database: hive_db
+
+# 外部数据源配置
+external_data_source: 
+ data_path: data/orders.csv
+ 
+
+
+
