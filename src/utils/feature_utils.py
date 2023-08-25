@@ -55,9 +55,26 @@ def f_calc_stats(w_df, col, stats, condition, k):
             res += f_max(w_df, col, condition)
         elif stat == 'min':
             res += f_min(w_df, col, condition)
+        elif stat == 'count':
+            res += f_count(w_df, col, condition)
         elif stat == 'sum_topk':
             if k is not None:
                 res += f_sum_topk(w_df, col, k, condition)
+            else:
+                raise ValueError('在含有topk的操作中必须指定k具体是多少')
+        elif stat == 'mean_topk':
+            if k is not None:
+                res += f_mean_topk(w_df, col, k, condition)
+            else:
+                raise ValueError('在含有topk的操作中必须指定k具体是多少')
+        elif stat == 'max_topk':
+            if k is not None:
+                res += f_max_topk(w_df, col, k, condition)
+            else:
+                raise ValueError('在含有topk的操作中必须指定k具体是多少')
+        elif stat == 'min_topk':
+            if k is not None:
+                res += f_min_topk(w_df, col, k, condition)
             else:
                 raise ValueError('在含有topk的操作中必须指定k具体是多少')
     return res

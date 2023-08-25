@@ -27,7 +27,7 @@ if __name__ == '__main__':
     logger.info('sample_data.shape = {}'.format(sample_data.shape))
 
     # 生成特征数据集
-    num_records = 5000000
+    num_records = 10000000
     cust_ids = ['cust_' + str(i) for i in range(0, 2000)]
     start_date = pd.to_datetime('2022-08-07')
     end_date = pd.to_datetime('2023-08-10')
@@ -47,6 +47,7 @@ if __name__ == '__main__':
         join_sort_col_idx=1,
         join_prod_col_idx=2,
         mode='two',
+        is_multiprocess=True,
         windows=[30, 3*30, 6*30],
         calc_configs=[
             {'col': 'val', 'stats': ['sum', 'mean'], 'is_window': 1},
@@ -57,10 +58,32 @@ if __name__ == '__main__':
         ],
         feat_prefix='f',
     ).sort_by_key().map_partition()
+    
+    # FeatureExtractorBySort(
+    #     base_table=sample_data,
+    #     base_partition_col_idx=0,
+    #     base_sort_col_idx=2,
+    #     base_prod_col_idx=1,
+    #     join_table=data,
+    #     join_partition_col_idx=0,
+    #     join_sort_col_idx=1,
+    #     join_prod_col_idx=2,
+    #     mode='two',
+    #     is_multiprocess=True,
+    #     windows=[30, 3*30, 6*30],
+    #     calc_configs=[
+    #         {'col': 'val', 'stats': ['sum', 'mean'], 'is_window': 1},
+    #         # {'col': 'val', 'stats': ['sum_topk'], 'k': 3},
+    #         {'col': 'cnt', 'stats': ['sum', 'mean'], 'is_window': 0},
+    #         {'col': 'cnt', 'stats': ['sum', 'mean'], 'condition': {'kind': [0,1,2]}, 'is_window': 1},
+    #         {'col': 'val', 'stats': ['sum', 'mean'], 'condition': {'kind': [0,1,2,3]}, 'is_window': 1}
+    #     ],
+    #     feat_prefix='f',
+    # ).map_partition()
 
-    end_time = time.time()
-    run_time = end_time - start_time
-    print("代码运行时间为：", run_time, "秒")
+    # end_time = time.time()
+    # run_time = end_time - start_time
+    # print("代码运行时间为：", run_time, "秒")
     
     
     

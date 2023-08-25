@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 curr_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(os.path.dirname(curr_dir))
 
-class FeatureExtractor:
+class FeatureExtractorNoSort:
     '''特征提取函数，实现样本表和特征数据表之间的关联，并按照配置提取相关的特征
     
     参数：
@@ -99,102 +99,60 @@ class FeatureExtractor:
             
             if windows and is_window is None:
                 raise ValueError('windows参数必须与is_window匹配')
-        
-    def sort_by_key(self):
-        '''根据指定的[partition_col_idx, sort_col_idx]进行排序
-
-        '''
-        if self.mode == 'one':
-            return self.sort_by_key_with_one_table()
-        else:
-            return self.sort_by_key_with_two_table()
     
-    def sort_by_key_with_one_table(self):
-        data = self.base_table
-        base_partition_col_idx, base_sort_col_idx = self.base_partition_col_idx, self.base_sort_col_idx
-        cols = data.columns
-        # 排序
-        self.data_df = data.sort_values(by = [cols[base_partition_col_idx], cols[base_sort_col_idx]], ignore_index=True)
-        return self
+    def calc_feat(self, key_data_dict, ins_sort_idx, join_cols, jon_sort_idx, configs, windows):
+        res = []
+        for row, key_data in key_data_dict.items():
+            # 遍历配置获取特征
+            feat_key = []
+            for config in configs:
+                col = config.get('col')
+                stats = config.get('stats')
+                conditions = config.get('condition')
+                k = config.get('k')
+                is_window = config.get('is_window')
+                
+                if int(is_window) == 1:
+                    for w in windows:
+                        # 计算开始时间和结束时间
+                        start_date, end_date = get_date_diff_of_day(row[ins_sort_idx], -w), row[ins_sort_idx]
+                        # 筛选窗口数据
+                        ins_df = key_data.set_index(join_cols[jon_sort_idx])
+                        w_df = ins_df[start_date:end_date]
+                        
+                        feat_key += f_calc_stats(w_df, col, stats, conditions, k)
+                else:
+                    feat_key += f_calc_stats(key_data, col, stats, conditions, k)
+            res.append(list(row)+feat_key)
+        return res
     
-    def sort_by_key_with_two_table(self):
-        base_data, join_data = self.base_table, self.join_table
-        base_partition_col_idx, base_sort_col_idx, base_prod_col_idx = self.base_partition_col_idx, self.base_sort_col_idx, self.base_prod_col_idx
-        join_partition_col_idx, join_sort_col_idx, join_prod_col_idx = self.join_partition_col_idx, self.join_sort_col_idx, self.join_prod_col_idx
-        
-        # 合并两张表数据
-        base_cols, join_cols = base_data.columns, join_data.columns
-        base_df = base_data.rename(columns = {base_cols[base_partition_col_idx]: 'key', base_cols[base_sort_col_idx]: 'sort'})
-        join_df = join_data.rename(columns = {join_cols[join_partition_col_idx]: 'key', join_cols[join_sort_col_idx]: 'sort'})
-        if base_prod_col_idx:
-            base_df.rename(columns = {base_cols[base_prod_col_idx]: 'prod_id'}, inplace=True)
-        if join_prod_col_idx:
-            self.prod = 'prod_id'
-            join_df.rename(columns = {join_cols[join_prod_col_idx]: 'prod_id'}, inplace=True)
-        else: self.prod = None
-        self.sample_feat_names = list(base_df.columns)
-        
-        # 排序
-        base_df['flag'], join_df['flag'] = 1, 0
-        feat_df = pd.concat([base_df, join_df])
-        self.data_df = feat_df.sort_values(by = ['key', 'sort', 'flag'], ignore_index=True)
-        
-        # 计算窗口数据最大数据量的开始时间,利用min(样本时间)-max(windows)
-        if self.windows == [] or self.windows is None:
-            self.max_start_date = get_date_diff_of_day(min(base_df['sort']), -360)
-        else:    
-            self.max_start_date = get_date_diff_of_day(min(base_df['sort']), -self.windows[-1])
-        
-        return self
-    
-    def split_dataframe_by_key(self, df, num_parts, key_column):
-        partitions = []  # 用于存储分割后的部分
+    def divide_dict(self, ins_data, ins_key_idx, join_data_group, num_parts):
+        row_dict = {}
+        for row in ins_data.itertuples(index=False, name=None):
+            row_dict[row] = join_data_group.get_group(row[ins_key_idx])
+            
+        keys = list(row_dict.keys())  # 获取字典的所有键
+        total_keys = len(keys)  # 总键数
 
-        # 按照 key_column 的值进行分组
-        grouped = df.groupby(key_column)
+        avg_keys_per_part = total_keys // num_parts  # 每份应包含的键的数量
+        remaining_keys = total_keys % num_parts  # 剩余的键数量
 
-        # 将每个分组中的行添加到对应的分区
-        for _, group in grouped:
-            partitions.append(group)
+        parts = []  # 存储分割后的字典数据
 
-        # 将分区均匀分配到指定的份数
-        num_groups = len(partitions)
-        avg_group_size = num_groups // num_parts
-        remainder = num_groups % num_parts
-
-        result = []
-        start = 0
-
+        start_index = 0  # 开始索引
         for i in range(num_parts):
-            group_size = avg_group_size + 1 if i < remainder else avg_group_size
-            end = start + group_size
-            result.append(pd.concat(partitions[start:end]))
-            start = end
+            keys_in_part = avg_keys_per_part + (1 if i < remaining_keys else 0)  # 当前份应包含的键的数量
 
-        return result
+            end_index = start_index + keys_in_part  # 结束索引
+
+            sub_dict = {key: row_dict[key] for key in keys[start_index:end_index]}  # 构建当前份的子字典
+            parts.append(sub_dict)
+
+            start_index = end_index  # 更新开始索引为当前结束索引
+
+        return parts
     
-    def calc_feat(self, vals, windows, calc_configs, max_start_date, idxs):
-        res_lst = []
-        col_names = vals.columns
-        for _, data in vals.groupby('key'):
-            res = []
-            window_data = []
-            for row in data.itertuples(index=False):
-                if row.flag == 0:
-                    if row.sort >= max_start_date:
-                        window_data.append(list(row))
-                    else:
-                        continue
-                else: # 样本数据
-                    ins_date = row.sort
-                    w_df = pd.DataFrame(window_data, columns = col_names)
-                    feat_cust_lst = feat_calc_stats_with_configs(calc_configs, w_df, windows, ins_date)
-                    
-                    res.append(list(np.array(row)[idxs.flatten()]) + feat_cust_lst)
-            res_lst += res
-        return res_lst
-    
-    def get_feat_with_multiprocess(self, df, windows, calc_configs, max_start_date, idxs, process_num):
+    def get_feat_with_multiprocess(self, ins_data, ins_key_idx, ins_sort_idx, join_data_group, join_cols, jon_sort_idx, configs, windows, process_num):
         feat_lst = []
         futures = []
         start_time = time.time()
@@ -203,12 +161,11 @@ class FeatureExtractor:
             num = process_num
         else:
             num = multiprocessing.cpu_count()
-        # 将df分成几份，并使得每个key分布在同一个part中
-        split_df = self.split_dataframe_by_key(df, num, 'key')
+        result = self.divide_dict(ins_data, ins_key_idx, join_data_group, num)
         
         with ProcessPoolExecutor(max_workers = num) as executor:
-            for i in range(len(split_df)):
-                futures.append(executor.submit(self.calc_feat, split_df[i], windows, calc_configs, max_start_date, idxs))
+            for i in range(len(result)):
+                futures.append(executor.submit(self.calc_feat, result[i], ins_sort_idx, join_cols, jon_sort_idx, configs, windows))
                 
             for future in concurrent.futures.as_completed(futures):
                 try:
@@ -222,56 +179,73 @@ class FeatureExtractor:
         logger.info(f"采用多进程方式获取特征花费的时间为：{run_time}秒")
         return feat_lst
     
-    def get_feat_with_traversal(self, df, max_start_date, calc_configs, windows, idxs):
+    def get_feat_with_traversal(self, ins_data, ins_key_idx, ins_sort_idx, join_data_group, join_cols, jon_sort_idx, configs, windows):
         feat_lst = []
-        
         start_time = time.time()
-        col_names = df.columns
-        for _, vals in df.groupby('key'):
-            window_data = []
-            for row in vals.itertuples(index=False):
-                if row.flag == 0:
-                    if row.sort >= max_start_date:
-                        window_data.append(list(row))
-                    else:
-                        continue
-                else: # 样本数据
-                    ins_date = row.sort
-                    w_df = pd.DataFrame(window_data, columns = col_names)
-                    feat_cust_lst = feat_calc_stats_with_configs(calc_configs, w_df, windows, ins_date)
-                    
-                    feat_lst.append(list(np.array(row)[idxs.flatten()]) + feat_cust_lst)
+        # 遍历每个样本
+        for row in ins_data.itertuples(index=False):
+            res = []
+            # 获取每个key的特征数据
+            key_data = join_data_group.get_group(row[ins_key_idx]) # 效率更高
+            # 遍历配置获取特征
+            for config in configs:
+                col = config.get('col')
+                stats = config.get('stats')
+                conditions = config.get('condition')
+                k = config.get('k')
+                is_window = config.get('is_window')
+                
+                if int(is_window) == 1:
+                    for w in windows:
+                        # 计算开始时间和结束时间
+                        start_date, end_date = get_date_diff_of_day(row[ins_sort_idx], -w), row[ins_sort_idx]
+                        # 筛选窗口数据
+                        ins_df = key_data.set_index(join_cols[jon_sort_idx])
+                        w_df = ins_df[start_date:end_date]
+                        
+                        res += f_calc_stats(w_df, col, stats, conditions, k)
+                else:
+                    res += f_calc_stats(key_data, col, stats, conditions, k)
+            
+            feat_lst.append(list(row)+res)
         
         end_time = time.time()
         run_time = end_time - start_time
         logger.info(f"采用遍历样本的方式获取特征花费的时间为：{run_time}秒")
+        
         return feat_lst
     
     def map_partition(self):
-        df = self.data_df
-        calc_configs, windows, sample_feat_names = self.calc_configs, self.windows, self.sample_feat_names
-        max_start_date, col_names = self.max_start_date, df.columns
-        idxs = np.argwhere(np.isin(col_names, sample_feat_names))
+        ins_data, join_data = self.base_table, self.join_table
+        ins_cols, join_cols = list(ins_data.columns), list(join_data.columns)
+        ins_key_idx, ins_prod_idx, ins_sort_idx = self.base_partition_col_idx, self.base_prod_col_idx, self.base_sort_col_idx
+        jon_key_idx, jon_prod_idx, jon_sort_idx = self.join_partition_col_idx, self.join_prod_col_idx, self.join_sort_col_idx
+        configs, windows = self.calc_configs, self.windows
+        self.ins_cols = ins_cols
+        
+        # 排序
+        join_data.sort_values(by = [join_cols[jon_key_idx], join_cols[jon_sort_idx]], ignore_index=True, inplace=True)
+        join_data_group = join_data.groupby(join_cols[jon_key_idx])
         
         is_multiprocess, process_num = self.is_multiprocess, self.process_num
         if is_multiprocess:
             # 多进程跑特征
-            res = self.get_feat_with_multiprocess(df, windows, calc_configs, max_start_date, idxs, process_num)
+            res = self.get_feat_with_multiprocess(ins_data, ins_key_idx, ins_sort_idx, join_data_group, join_cols, jon_sort_idx, configs, windows, process_num)
         else:    
             # 遍历数据跑特征
-            res = self.get_feat_with_traversal(df, max_start_date, calc_configs, windows, idxs)
+            res = self.get_feat_with_traversal(ins_data, ins_key_idx, ins_sort_idx, join_data_group, join_cols, jon_sort_idx, configs, windows)
         
+        # 存储特征结果数据
         feat_names = self.get_feat_names()
-        res_df = pd.DataFrame(res, columns=feat_names)
-        res_df.to_csv(parent_dir+f'/data/features/feat_{self.feat_prefix}.csv', index=False)
+        res_df = pd.DataFrame(res, columns = feat_names)
+        res_df.to_csv(parent_dir+f'/data/features/feat_{self.feat_prefix}2.csv', index=False)
         print(res_df.shape)
         print(res_df.head())
-        
             
     def get_feat_names(self):
         windows, calc_configs, feat_prefix = self.windows, self.calc_configs, self.feat_prefix
         
-        feat_names = self.sample_feat_names
+        feat_names = self.ins_cols
         for config in calc_configs:
             col = config.get('col')
             condition = config.get('condition')

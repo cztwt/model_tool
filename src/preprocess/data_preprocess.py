@@ -181,7 +181,7 @@ class DataPreprocessor:
 
 
 
-# 创建一个示例DataFrame
+# 缺失值处理逻辑测试dataframe
 # data = {'Feature A': [1, 2, None, 4, 5],
 #         'Feature B': [None, 2, 3, None, 5],
 #         'Feature C': [1, 2, 3, 4, 5],
@@ -205,11 +205,11 @@ data = {'feature a': [10, 2.7, 3.6, 3.0, 9],
 df = pd.DataFrame(data)
 
 # 调用函数统计缺失值
-# preprocessor = DataPreprocessor()
+preprocessor = DataPreprocessor()
 # result = preprocessor.handle_missing_values(df, delete_strategy=0.8, fill_strategy='mean')
 # result = preprocessor.handle_outliers_values(df, out_strategy='delete')
 # result = preprocessor.remove_duplicates(df)
 # result = preprocessor.normalize_features(df)
-# result = preprocessor.encode_categorical_features(df, method='label')
-# print(result)
+result = preprocessor.encode_categorical_features(df, method='label')
+print(result)
 
