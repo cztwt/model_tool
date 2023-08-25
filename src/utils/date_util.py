@@ -1,11 +1,7 @@
 import warnings
-import logging
+from .logger import logger
 from datetime import datetime, date, timedelta
 from dateutil.relativedelta import relativedelta
-
-warnings.filterwarnings('ignore')
-logging.basicConfig(level = logging.INFO,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 def convert_to_date(date_input, format=None):
     '''判断日期类型, 如果为字符串类型将其转为日期类型'''
